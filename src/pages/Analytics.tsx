@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -16,6 +16,7 @@ import {
   Truck,
   Users,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -138,9 +139,20 @@ const MultiSelect: React.FC<{
 
 const HeatmapPanel: React.FC<{ analytics: EnterpriseAnalytics }> = ({ analytics }) => {
   const { isLoaded } = useJsApiLoader({
-    id: 'analytics-google-map',
+    id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
   });
+
+  useEffect(() => {
+    return () => {
+      // Cleanup any Google Maps instances on unmount
+      if (window.google && window.google.maps) {
+        // Force cleanup of any lingering map instances
+        const maps = document.querySelectorAll('[id^="google-map-script"]');
+        maps.forEach(map => map.remove());
+      }
+    };
+  }, []);
 
   return (
     <Card className="overflow-hidden p-0">
@@ -225,6 +237,7 @@ export const Analytics: React.FC = () => {
   const [granularity, setGranularity] = useState<AnalyticsGranularity>('daily');
   const [showFilters, setShowFilters] = useState(true);
   const [liveEvents, setLiveEvents] = useState<LiveActivityEvent[]>([]);
+  const mountedRef = useRef(true);
 
   const query = useQuery({
     queryKey: ['enterprise-analytics', filters],
@@ -237,6 +250,7 @@ export const Analytics: React.FC = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!mountedRef.current) return;
       const event: LiveActivityEvent = {
         id: `evt-live-${Date.now()}`,
         type: 'driver_assigned',
@@ -247,6 +261,12 @@ export const Analytics: React.FC = () => {
       setLiveEvents((events) => [event, ...events].slice(0, 8));
     }, 9000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const activeChips = useMemo(() => [
@@ -265,6 +285,26 @@ export const Analytics: React.FC = () => {
     await analyticsService.exportReport(type);
     toast.success(`${type.toUpperCase()} export generated`);
   };
+
+  if (query.isError) {
+    return (
+      <div className="space-y-6">
+        <div><h1 className="text-2xl font-bold text-gray-900">Analytics</h1><p className="text-sm text-gray-500">Deep dive into platform performance metrics.</p></div>
+        <Card className="p-8 text-center">
+          <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Failed to load analytics data</h3>
+          <p className="text-gray-600 mb-4">There was an error loading the analytics dashboard. Please try again.</p>
+          <button
+            onClick={() => query.refetch()}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--color-brand-600)] text-white rounded-lg hover:bg-[var(--color-brand-700)]"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Retry
+          </button>
+        </Card>
+      </div>
+    );
+  }
 
   if (query.isLoading || !query.data) {
     return (
@@ -295,7 +335,7 @@ export const Analytics: React.FC = () => {
         </div>
       </div>
 
-      <Card className="sticky top-16 z-[2] space-y-4">
+      <Card className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900"><Filter className="h-4 w-4 text-[var(--color-brand-600)]" /> Analytics Filters</h3>
           <div className="flex gap-2">
